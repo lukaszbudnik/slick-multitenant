@@ -1,7 +1,7 @@
 package repository
 
 import scala.slick.jdbc.{SetParameter, GetResult}
-import model.{Payment, Product}
+import model.Payment
 import security.{Encryption, Decryption}
 
 

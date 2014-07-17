@@ -6,6 +6,8 @@ import scala.slick.jdbc.{StaticQuery => Q, SetParameter, GetResult}
 import scala.Option
 import model.BaseEntity
 import org.joda.time.DateTime
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
 
 trait Context {
   def tenant: String
@@ -37,43 +39,60 @@ abstract class Repository[T <: BaseEntity[T]](implicit m: Manifest[T]) extends P
     s"insert into ${context.tenant}.${table} values (${qm})"
   }
 
-  def selectNextVal(context: Context): Long = database withDynSession {
+  def selectNextVal(context: Context): Future[Long] = Future {
+    doSelectNextVal(context)
+  }
+
+  private def doSelectNextVal(context: Context): Long = database withDynSession {
     Q.queryNA[Long](selectNextValStatement(context)).first
   }
 
-  def insert(context: Context)(t: T): T = database withDynTransaction {
-    insertInParentTx(context)(t)
+  def insert(context: Context)(t: T): Future[T] = Future {
+    database withDynTransaction {
+      doInsert(context)(t)
+    }
   }
 
-  def insertInParentTx(context: Context)(t: T) = {
+  def insertInParentTx(context: Context)(t: T): Future[T] = Future {
+    doInsert(context)(t)
+  }
+
+  private[repository] def doInsert(context: Context)(t: T): T = {
     val nt = t.ref match {
       case None => {
-        val ref = selectNextVal(context)
+        val ref = doSelectNextVal(context)
         t.withRef(ref).withTimestamp(DateTime.now())
       }
       case Some(ref) => t.withTimestamp(DateTime.now())
     }
 
     Q.update(insertStatement(context)).execute(nt)
-
     nt
   }
 
-  def selectByRef(context: Context)(ref: Long): Option[T] = database withDynSession {
-    Q.query[Long, T](selectByRefStatement(context)).firstOption(ref)
+  def selectByRef(context: Context)(ref: Long): Future[Option[T]] = Future {
+    database withDynSession {
+      doSelectByRef(context)(ref)
+    }
   }
 
-  def selectByRefInParentTx(context: Context)(ref: Long): Option[T] = {
-    Q.query[Long, T](selectByRefStatement(context)).firstOption(ref)
+  def selectByRefInParentTx(context: Context)(ref: Long): Future[Option[T]] = Future {
+    doSelectByRef(context)(ref)
   }
 
-  def delete(context: Context)(t: T): T = database withDynTransaction {
-    deleteInParentTx(context)(t)
+  private[repository] def doSelectByRef(context: Context)(ref: Long): Option[T] = Q.query[Long, T](selectByRefStatement(context)).firstOption(ref)
+
+  def delete(context: Context)(t: T): Future[T] = Future {
+    database withDynTransaction {
+      doDelete(context)(t)
+    }
   }
 
-  def deleteInParentTx(context: Context)(t: T): T = {
-    insertInParentTx(context)(t.withDeleted(true))
+  def deleteInParentTx(context: Context)(t: T): Future[T] = Future {
+    doDelete(context)(t)
   }
+
+  private[repository] def doDelete(context: Context)(t: T) = doInsert(context)(t.withDeleted(true))
 
   implicit val getResult: GetResult[T]
 
