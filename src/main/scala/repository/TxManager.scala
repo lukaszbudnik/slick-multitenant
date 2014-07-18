@@ -1,10 +1,12 @@
 package repository
 
-import scala.slick.driver.JdbcDriver.backend.Database
-import Database.dynamicSession
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class TxManager extends PooledDatabase {
 
-  def executeInTx[T](f: => T): T = database withDynTransaction f
+  def executeInTx[T](f: => T): Future[T] = Future {
+    database withDynTransaction f
+  }
 
 }
